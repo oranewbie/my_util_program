@@ -57,6 +57,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# --- Rust ---
+target/
+**/*.rs.bk
+*.pdb
+
 # --- Env / Secrets ---
 .env
 .env.local
