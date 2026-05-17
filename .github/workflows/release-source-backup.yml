@@ -1,0 +1,108 @@
+name: Release source-backup
+
+# 트리거:
+#  - 태그 `source-backup-v*` 푸시 → 빌드 + GitHub Release 생성
+#  - 수동 dispatch → 빌드만 (artifact 업로드, release 는 안 만듦)
+on:
+  push:
+    tags:
+      - 'source-backup-v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ''
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: '.exe'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Linux GUI 빌드를 위한 시스템 의존성 (X11/GTK 헤더).
+      # rfd 의 dialog + eframe 의 winit/glutin 이 사용.
+      - name: Install Linux deps (GUI)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libssl-dev
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/source-backup -> target
+
+      - name: Build CLI (release)
+        working-directory: packages/source-backup
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Build GUI (release)
+        working-directory: packages/source-backup
+        run: cargo build --release --locked --features gui --bin source-backup-gui --target ${{ matrix.target }}
+
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#source-backup-v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Stage artifacts
+        shell: bash
+        working-directory: packages/source-backup
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/source-backup${{ matrix.ext }}" \
+             "dist/source-backup-${{ steps.ver.outputs.version }}-${{ matrix.target }}${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/source-backup-gui${{ matrix.ext }}" \
+             "dist/source-backup-gui-${{ steps.ver.outputs.version }}-${{ matrix.target }}${{ matrix.ext }}"
+          ls -la dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-backup-${{ matrix.target }}
+          path: packages/source-backup/dist/source-backup*
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/source-backup-v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          name: source-backup ${{ github.ref_name }}

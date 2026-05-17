@@ -1,0 +1,41 @@
+[package]
+name = "source-backup"
+version = "0.1.0"
+edition = "2021"
+description = "폴더를 zip으로 백업. .git 있으면 .gitignore 규칙, 없으면 고정 블랙리스트로 제외"
+license = "MIT"
+
+[lib]
+name = "source_backup"
+path = "src/lib.rs"
+
+[[bin]]
+name = "source-backup"
+path = "src/main.rs"
+
+# GUI 바이너리. `--features gui` 가 있을 때만 빌드됨 (CLI 만 쓸 때 eframe 안 끌어옴).
+[[bin]]
+name = "source-backup-gui"
+path = "src/bin/gui.rs"
+required-features = ["gui"]
+
+[features]
+default = []
+gui = ["dep:eframe", "dep:rfd"]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# GUI 전용 (optional)
+eframe = { version = "0.29", optional = true }
+rfd = { version = "0.15", optional = true }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
